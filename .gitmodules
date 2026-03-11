@@ -1,0 +1,3 @@
+[submodule "report/diploma"]
+	path = report/diploma
+	url = git@github.com:iktovr/diploma-latex-template.git
