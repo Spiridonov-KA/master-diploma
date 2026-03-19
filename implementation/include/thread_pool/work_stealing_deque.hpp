@@ -97,14 +97,22 @@ class WorkStealingDeque {
     }
 
     bool pop(std::function<void()> &task) {
-        std::size_t bottom = bottom_.load(std::memory_order_relaxed) - 1;
+        std::size_t bottom = bottom_.load(std::memory_order_relaxed);
+        std::size_t top = top_.load(std::memory_order_acquire);
+
+        if (bottom == top) {
+            return false;
+        }
+
+        bottom -= 1;
+
         RingBuffer *buf = buffer_.load(std::memory_order_relaxed);
 
         bottom_.store(bottom, std::memory_order_relaxed);
 
         std::atomic_thread_fence(std::memory_order_seq_cst);
 
-        std::size_t top = top_.load(std::memory_order_relaxed);
+        top = top_.load(std::memory_order_relaxed);
 
         if (top <= bottom) {
             void *ptr = buf->load(bottom);
