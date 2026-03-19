@@ -31,6 +31,7 @@ enable_testing()
 
 add_executable(tests
     tests/test_simple_pool.cpp
+    tests/test_work_stealing_deque.cpp
 )
 
 target_link_libraries(tests
