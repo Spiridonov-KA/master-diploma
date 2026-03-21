@@ -7,7 +7,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(thread_pool
     src/simple_thread_pool.cpp
+    src/work_stealing_pool.cpp
 )
+
 
 target_include_directories(thread_pool
     PUBLIC
@@ -32,7 +34,11 @@ enable_testing()
 add_executable(tests
     tests/test_simple_pool.cpp
     tests/test_work_stealing_deque.cpp
+    tests/test_work_stealing_pool.cpp
 )
+
+target_compile_options(tests PRIVATE -fsanitize=thread)
+target_link_options(tests PRIVATE -fsanitize=thread)
 
 target_link_libraries(tests
     PRIVATE
@@ -40,5 +46,10 @@ target_link_libraries(tests
         GTest::gtest_main
 )
 
+set(CTEST_PARALLEL_LEVEL 1)
+
 include(GoogleTest)
-gtest_discover_tests(tests)
+gtest_discover_tests(tests
+    PROPERTIES
+        RUN_SERIAL TRUE
+)

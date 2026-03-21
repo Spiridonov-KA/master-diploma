@@ -12,9 +12,12 @@ SimpleThreadPool::SimpleThreadPool(std::size_t thread_count) : stop_(false) {
     }
 }
 
-SimpleThreadPool::~SimpleThreadPool() {
-    stop_.store(true);
-
+SimpleThreadPool::~SimpleThreadPool()
+{
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        stop_.store(true);
+    }
     cv_.notify_all();
 
     for (std::thread &worker : workers_) {
