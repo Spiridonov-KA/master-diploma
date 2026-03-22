@@ -13,14 +13,12 @@ class WorkStealingDeque {
     WorkStealingDeque(const WorkStealingDeque&)            = delete;
     WorkStealingDeque& operator=(const WorkStealingDeque&) = delete;
 
-    // Только владелец
     void push(std::function<void()> task)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.push_back(std::move(task));
     }
 
-    // Только владелец — берёт с конца (LIFO)
     bool pop(std::function<void()>& task)
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -34,7 +32,6 @@ class WorkStealingDeque {
         return true;
     }
 
-    // Вор — берёт с начала (FIFO)
     bool steal(std::function<void()>& task)
     {
         std::lock_guard<std::mutex> lock(mutex_);

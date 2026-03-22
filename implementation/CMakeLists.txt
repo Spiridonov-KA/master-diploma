@@ -10,7 +10,6 @@ add_library(thread_pool
     src/work_stealing_pool.cpp
 )
 
-
 target_include_directories(thread_pool
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -27,7 +26,38 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG        v1.14.0
 )
-FetchContent_MakeAvailable(googletest)
+
+FetchContent_Declare(
+    googlebenchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.8.3
+)
+
+set(BENCHMARK_ENABLE_TESTING    OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+
+set(BENCHMARK_ENABLE_WERROR     OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(googletest googlebenchmark)
+
+get_target_property(BENCHMARK_COMPILE_OPTIONS
+    benchmark INTERFACE_COMPILE_OPTIONS)
+
+if(BENCHMARK_COMPILE_OPTIONS)
+    list(REMOVE_ITEM BENCHMARK_COMPILE_OPTIONS -Werror)
+    set_target_properties(benchmark PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "${BENCHMARK_COMPILE_OPTIONS}")
+endif()
+
+target_compile_options(benchmark PRIVATE
+    -Wno-error
+    -Wno-c2y-extensions
+)
+
+target_compile_options(benchmark_main PRIVATE
+    -Wno-error
+    -Wno-c2y-extensions
+)
 
 enable_testing()
 
@@ -52,4 +82,19 @@ include(GoogleTest)
 gtest_discover_tests(tests
     PROPERTIES
         RUN_SERIAL TRUE
+)
+
+add_executable(benchmarks
+    benchmarks/bench_thread_pools.cpp
+)
+
+target_compile_options(benchmarks PRIVATE
+    -O2
+    -Wno-error
+)
+
+target_link_libraries(benchmarks
+    PRIVATE
+        thread_pool
+        benchmark::benchmark_main
 )
