@@ -7,20 +7,18 @@
 
 class WorkStealingDeque {
   public:
-    WorkStealingDeque()  = default;
+    WorkStealingDeque() = default;
     ~WorkStealingDeque() = default;
 
-    WorkStealingDeque(const WorkStealingDeque&)            = delete;
-    WorkStealingDeque& operator=(const WorkStealingDeque&) = delete;
+    WorkStealingDeque(const WorkStealingDeque &) = delete;
+    WorkStealingDeque &operator=(const WorkStealingDeque &) = delete;
 
-    void push(std::function<void()> task)
-    {
+    void push(std::function<void()> task) {
         std::lock_guard<std::mutex> lock(mutex_);
         queue_.push_back(std::move(task));
     }
 
-    bool pop(std::function<void()>& task)
-    {
+    bool pop(std::function<void()> &task) {
         std::lock_guard<std::mutex> lock(mutex_);
 
         if (queue_.empty()) {
@@ -32,8 +30,7 @@ class WorkStealingDeque {
         return true;
     }
 
-    bool steal(std::function<void()>& task)
-    {
+    bool steal(std::function<void()> &task) {
         std::lock_guard<std::mutex> lock(mutex_);
 
         if (queue_.empty()) {
@@ -45,19 +42,17 @@ class WorkStealingDeque {
         return true;
     }
 
-    std::size_t size() const
-    {
+    std::size_t size() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return queue_.size();
     }
 
-    bool empty() const
-    {
+    bool empty() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return queue_.empty();
     }
 
   private:
     std::deque<std::function<void()>> queue_;
-    mutable std::mutex                mutex_;
+    mutable std::mutex mutex_;
 };
