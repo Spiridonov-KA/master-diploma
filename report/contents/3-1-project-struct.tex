@@ -1,0 +1,267 @@
+\section{Программная реализация и экспериментальное исследование}
+
+\subsection{Программная реализация библиотеки}
+
+\subsubsection{Структура проекта и организация исходного кода}
+
+Проект организован в соответствии с общепринятыми соглашениями
+о структуре библиотек на языке C++. Корневой
+каталог содержит четыре подкаталога, каждый из которых несёт
+единственную ответственность. Файловая структура проекта
+представлена в листинге~\ref{lst:project-structure}.
+
+\begin{lstlisting}[caption={Файловая структура проекта},
+                   label={lst:project-structure}]
+implementation
+├── benchmarks
+│   └── bench_thread_pools.cpp
+├── CMakeLists.txt
+├── include
+│   └── thread_pool
+│       ├── simple_thread_pool.hpp
+│       ├── work_stealing_deque.hpp
+│       └── work_stealing_pool.hpp
+├── src
+│   ├── simple_thread_pool.cpp
+│   └── work_stealing_pool.cpp
+└── tests
+    ├── test_simple_pool.cpp
+    ├── test_work_stealing_deque.cpp
+    └── test_work_stealing_pool.cpp
+\end{lstlisting}
+
+Каталог \texttt{include/thread\_pool/} содержит заголовочные
+файлы всех публичных компонентов библиотеки. Размещение
+заголовочных файлов в подкаталоге \texttt{thread\_pool/}
+обеспечивает пространство имён на уровне файловой системы:
+пользователь подключает компоненты директивой
+\texttt{\#include "thread\_pool/simple\_thread\_pool.hpp"},
+что исключает конфликты имён с заголовочными файлами
+других библиотек.
+
+Каталог \texttt{src/} содержит файлы реализации. Разделение
+интерфейса (заголовочные файлы) и реализации (файлы
+\texttt{.cpp}) является стандартной практикой в C++: оно
+сокращает время компиляции за счёт раздельной компиляции
+модулей и скрывает детали реализации от пользователя
+библиотеки.
+
+Каталог \texttt{tests/} содержит автоматические тесты
+корректности, построенные на основе библиотеки Google Test.
+Каждый модуль библиотеки имеет соответствующий файл тестов:
+\texttt{test\_simple\_pool.cpp} тестирует \texttt{SimpleThreadPool},
+\texttt{test\_work\_stealing\_deque.cpp} тестирует
+\texttt{WorkStealingDeque}, \texttt{test\_work\_stealing\_pool.cpp}
+тестирует \texttt{WorkStealingPool}.
+
+Каталог \texttt{benchmarks/} содержит тесты производительности,
+построенные на основе библиотеки Google Benchmark. Все сценарии
+нагрузки сосредоточены в единственном файле
+\texttt{bench\_thread\_pools.cpp}, что упрощает сравнение
+результатов двух реализаций.
+
+Система сборки проекта построена на основе CMake версии
+3.14 и выше. Файл \texttt{CMakeLists.txt} решает четыре
+задачи: определяет библиотеку \texttt{thread\_pool} как
+цель сборки, подключает сторонние зависимости посредством
+механизма \texttt{FetchContent}, определяет исполняемые
+файлы тестов и бенчмарков и настраивает параметры компиляции.
+
+Механизм \texttt{FetchContent} автоматически загружает
+и собирает библиотеки Google Test и Google Benchmark
+при первой сборке проекта, что исключает необходимость
+их ручной установки. Ключевые фрагменты файла
+\texttt{CMakeLists.txt} представлены в листинге~\ref{lst:cmake}.
+
+\begin{lstlisting}[language=C++,
+                   caption={Ключевые фрагменты CMakeLists.txt},
+                   label={lst:cmake}]
+cmake_minimum_required(VERSION 3.14)
+project(thread_pool VERSION 1.0.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Основная библиотека — без внешних зависимостей
+add_library(thread_pool
+    src/simple_thread_pool.cpp
+    src/work_stealing_pool.cpp
+)
+target_include_directories(thread_pool PUBLIC include)
+
+# Автоматическая загрузка зависимостей
+include(FetchContent)
+FetchContent_Declare(googletest ...)
+FetchContent_Declare(googlebenchmark ...)
+FetchContent_MakeAvailable(googletest googlebenchmark)
+
+# Тесты — с ThreadSanitizer для обнаружения гонок данных
+add_executable(tests ...)
+target_compile_options(tests PRIVATE -fsanitize=thread)
+target_link_options(tests PRIVATE -fsanitize=thread)
+
+# Бенчмарки — с оптимизацией O3
+add_executable(benchmarks ...)
+target_compile_options(benchmarks PRIVATE -O3)
+\end{lstlisting}
+
+Тесты корректности собираются с включённым Thread Sanitizer
+(\texttt{-fsanitize=thread}) --- инструментом динамического
+анализа, обнаруживающим гонки данных во время выполнения
+программы. Бенчмарки производительности собираются с уровнем
+оптимизации \texttt{-O2} и без санитайзеров, поскольку
+санитайзеры вносят значительные накладные расходы и искажают
+результаты измерений.
+
+Сборка и запуск проекта осуществляются следующей
+последовательностью команд, представленной
+в листинге~\ref{lst:build}.
+
+\begin{lstlisting}[caption={Сборка и запуск проекта},
+                   label={lst:build}]
+# Конфигурация в режиме Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# Сборка всех целей
+cmake --build build
+
+# Запуск тестов корректности
+ctest --test-dir build --output-on-failure
+
+# Запуск бенчмарков с выводом в JSON
+./build/benchmarks \
+    --benchmark_format=json \
+    --benchmark_out=results.json
+\end{lstlisting}
+
+\subsubsection{Особенности программной реализации}
+
+В ходе практической реализации библиотеки был выявлен ряд
+нетривиальных проблем, решение которых потребовало отклонения
+от первоначального проектного решения. Данный раздел описывает
+наиболее значимые из них.
+
+Первая проблема --- гонка данных в деструкторе
+\texttt{SimpleThreadPool}. В исходной реализации деструктор
+устанавливал флаг остановки и вызывал \texttt{notify\_all()}
+без захвата мьютекса:
+
+\begin{lstlisting}[language=C++,
+                   caption={Исходная некорректная реализация
+                            деструктора},
+                   label={lst:destructor-bug}]
+// Некорректно: возможна потеря уведомления
+SimpleThreadPool::~SimpleThreadPool() {
+    stop_.store(true);      // флаг установлен
+    cv_.notify_all();       // уведомление отправлено
+    for (auto& w : workers_) w.join();
+}
+\end{lstlisting}
+
+При данной реализации возникала следующая гонка: рабочий поток
+мог проверить предикат переменной условия, не обнаружить задач,
+затем деструктор устанавливал флаг и отправлял уведомление,
+и лишь после этого поток входил в \texttt{cv\_.wait()}.
+В результате уведомление было потеряно и поток блокировался
+навсегда. Проблема была обнаружена при стресс-тестировании:
+тест \texttt{ThreadCountIsCorrect} периодически зависал при
+запуске совместно с другими тестами.
+
+Решение состоит в захвате мьютекса перед установкой флага
+остановки, что гарантирует атомарность операции с точки зрения
+рабочих потоков:
+
+\begin{lstlisting}[language=C++,
+                   caption={Исправленная реализация деструктора},
+                   label={lst:destructor-fix}]
+SimpleThreadPool::~SimpleThreadPool() {
+    {
+        // Захват мьютекса гарантирует что поток
+        // либо уже в cv_.wait(), либо увидит флаг
+        // при следующем захвате мьютекса
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        stop_.store(true);
+    }
+    cv_.notify_all();
+    for (auto& w : workers_) w.join();
+}
+\end{lstlisting}
+
+Вторая проблема --- переполнение беззнакового типа в методе
+\texttt{pop()} класса \texttt{WorkStealingDeque}. В исходной
+реализации алгоритма Чейза-Лева метод \texttt{pop()} первым
+действием уменьшал значение \texttt{bottom\_} на единицу:
+
+\begin{lstlisting}[language=C++,
+                   caption={Ошибка переполнения в методе pop()},
+                   label={lst:pop-bug}]
+bool pop(std::function<void()>& task) {
+    // Ошибка: если bottom_ == 0, то bottom_ - 1
+    // равно 18446744073709551615 (переполнение size_t)
+    std::size_t bottom =
+        bottom_.load(std::memory_order_relaxed) - 1;
+    ...
+}
+\end{lstlisting}
+
+При вызове \texttt{pop()} на пустой очереди, когда
+\texttt{bottom\_\,=\,0}, беззнаковое вычитание приводило
+к переполнению и обращению к недопустимой области памяти,
+что вызывало аварийное завершение программы (segmentation fault).
+Проблема была обнаружена тестом \texttt{PopOnEmptyReturnsFalse}.
+
+Решение состоит в проверке равенства \texttt{bottom\_} и
+\texttt{top\_} до выполнения каких-либо изменений:
+
+\begin{lstlisting}[language=C++,
+                   caption={Исправленный метод pop()},
+                   label={lst:pop-fix}]
+bool pop(std::function<void()>& task) {
+    std::size_t bottom = bottom_.load(std::memory_order_relaxed);
+    std::size_t top    = top_.load(std::memory_order_acquire);
+
+    // Проверяем до вычитания — исключаем переполнение
+    if (bottom == top) {
+        return false;
+    }
+
+    bottom -= 1;
+    ...
+}
+\end{lstlisting}
+
+Третья проблема --- отказ от lock-free реализации
+\texttt{WorkStealingDeque}. Первоначально планировалась
+реализация неблокирующей двусторонней очереди по алгоритму
+Чейза-Лева~\cite{Chase2005} на основе атомарных операций
+\texttt{std::atomic}. Однако в ходе тестирования были обнаружены
+ошибки типа \texttt{double free} и повреждение кучи
+(\texttt{malloc\_consolidate(): invalid chunk size}),
+связанные с гонкой данных при освобождении памяти под задачи.
+
+Корень проблемы состоит в том что вор читает указатель на задачу
+из буфера до выполнения операции CAS. В промежутке между чтением
+и CAS владелец может выполнить \texttt{pop()} и удалить задачу,
+оставив у вора висячий указатель. Корректное решение требует
+применения механизмов безопасного освобождения памяти в
+конкурентной среде --- hazard pointers или эпохального удаления
+(epoch-based reclamation), реализация которых существенно
+выходит за рамки настоящей работы.
+
+В качестве рабочего варианта была выбрана реализация на основе
+\texttt{std::deque} и \texttt{std::mutex}, корректность которой
+очевидна и легко верифицируется. Данное решение не влияет
+на корректность сравнительного исследования, поскольку обе
+реализации пулов потоков используют одну и ту же структуру
+\texttt{WorkStealingDeque}.
+
+Для обнаружения гонок данных в ходе разработки использовался
+инструмент Thread Sanitizer (TSan) --- динамический анализатор,
+встроенный в компиляторы GCC и Clang. TSan инструментирует
+код во время компиляции и обнаруживает гонки данных во время
+выполнения программы. Тесты корректности собираются с флагами
+\texttt{-fsanitize=thread}, что позволяет автоматически
+проверять отсутствие гонок данных при каждом запуске тестов.
+В финальной версии библиотеки Thread Sanitizer не обнаружил
+ни одной гонки данных.
