@@ -25,15 +25,22 @@
 \begin{lstlisting}[language=C++,
                    caption={Сценарий 1: много мелких задач},
                    label={lst:bench-small}]
-static void BM_ManySmallTasks(benchmark::State& state,
-                               auto& pool)
+static constexpr int kSmallTaskCount = 100000;
+
+static void BM_SimplePool_ManySmallTasks(
+    benchmark::State& state)
 {
+    const std::size_t thread_count =
+        static_cast<std::size_t>(state.range(0));
+
+    SimpleThreadPool pool(thread_count);
+
     for (auto _ : state) {
         std::atomic<int> counter(0);
         std::vector<std::future<void>> futures;
-        futures.reserve(kTaskCount); // kTaskCount = 10000
+        futures.reserve(kSmallTaskCount);
 
-        for (int i = 0; i < kTaskCount; ++i) {
+        for (int i = 0; i < kSmallTaskCount; ++i) {
             futures.emplace_back(pool.submit([&counter]() {
                 counter.fetch_add(1,
                     std::memory_order_relaxed);
@@ -41,10 +48,14 @@ static void BM_ManySmallTasks(benchmark::State& state,
         }
 
         for (auto& f : futures) { f.get(); }
+
+        if (counter.load() != kSmallTaskCount) {
+            state.SkipWithError("Not all tasks completed");
+        }
     }
 
     state.SetItemsProcessed(
-        state.iterations() * kTaskCount);
+        state.iterations() * kSmallTaskCount);
 }
 \end{lstlisting}
 
@@ -74,21 +85,28 @@ static void BM_ManySmallTasks(benchmark::State& state,
 \begin{lstlisting}[language=C++,
                    caption={Сценарий 2: неравномерная нагрузка},
                    label={lst:bench-uneven}]
-static void BM_UnevenLoad(benchmark::State& state,
-                           auto& pool)
+static constexpr auto kLongTaskDelay =
+    std::chrono::microseconds(200);
+
+static void BM_SimplePool_UnevenLoad(
+    benchmark::State& state)
 {
+    const std::size_t thread_count =
+        static_cast<std::size_t>(state.range(0));
+
+    SimpleThreadPool pool(thread_count);
+
     for (auto _ : state) {
         std::atomic<int> counter(0);
         std::vector<std::future<void>> futures;
-        futures.reserve(kTaskCount);
+        futures.reserve(kSmallTaskCount);
 
-        for (int i = 0; i < kTaskCount; ++i) {
+        for (int i = 0; i < kSmallTaskCount; ++i) {
             futures.emplace_back(
                 pool.submit([&counter, i]() {
                     if (i % 2 == 0) {
-                        // Длинная задача: 200 мкс
                         std::this_thread::sleep_for(
-                            std::chrono::microseconds(200));
+                            kLongTaskDelay);
                     }
                     counter.fetch_add(1,
                         std::memory_order_relaxed);
@@ -96,10 +114,14 @@ static void BM_UnevenLoad(benchmark::State& state,
         }
 
         for (auto& f : futures) { f.get(); }
+
+        if (counter.load() != kSmallTaskCount) {
+            state.SkipWithError("Not all tasks completed");
+        }
     }
 
     state.SetItemsProcessed(
-        state.iterations() * kTaskCount);
+        state.iterations() * kSmallTaskCount);
 }
 \end{lstlisting}
 
@@ -152,9 +174,7 @@ static void BM_UnevenLoad(benchmark::State& state,
 
 \subsubsection{Условия проведения эксперимента}
 
-Корректность сравнительного исследования производительности
-требует фиксации условий проведения эксперимента. В данном
-разделе описываются характеристики тестовой машины и параметры
+В данном разделе описываются характеристики тестовой машины и параметры
 запуска бенчмарков.
 
 Эксперимент проводился на рабочей станции под управлением
@@ -165,27 +185,27 @@ Google Benchmark и представлены в таблице~\ref{tab:hardware
 \begin{table}[h]
 \caption{Характеристики тестовой машины}
 \label{tab:hardware}
-\begin{tabularx}{\textwidth}{|l|X|}
+\begin{tabular}{|l|l|}
 \hline
 \textbf{Параметр} & \textbf{Значение} \\
 \hline
-Число логических ядер & 16 \\
+Число логических ядер    & 16 \\
 \hline
-Тактовая частота & 5102,71 МГц \\
+Тактовая частота         & 5102,71 МГц \\
 \hline
-Кэш L1 (данные) & 32 КиБ $\times$ 8 \\
+Кэш L1 (данные)          & 32 КиБ $\times$ 8 \\
 \hline
-Кэш L2 & 1024 КиБ $\times$ 8 \\
+Кэш L2                   & 1024 КиБ $\times$ 8 \\
 \hline
-Кэш L3 & 16384 КиБ $\times$ 1 \\
+Кэш L3                   & 16384 КиБ $\times$ 1 \\
 \hline
-Операционная система & Linux \\
+Операционная система     & Linux \\
 \hline
-Компилятор & Clang, стандарт C++17 \\
+Компилятор               & Clang, стандарт C++17 \\
 \hline
-Уровень оптимизации & \texttt{-O2} \\
+Уровень оптимизации      & \texttt{-O2} \\
 \hline
-\end{tabularx}
+\end{tabular}
 \end{table}
 
 Следует отметить что при проведении эксперимента была включена
@@ -196,8 +216,8 @@ frequency scaling). Google Benchmark выводит предупреждение
 \begin{lstlisting}[caption={Предупреждение Google Benchmark
                             о CPU scaling},
                    label={lst:cpu-scaling}]
-***WARNING*** CPU scaling is enabled, the benchmark real time
-measurements may be noisy and will incur extra overhead.
+***WARNING*** CPU scaling is enabled, the benchmark real
+time measurements may be noisy and will incur extra overhead.
 \end{lstlisting}
 
 Динамическая регулировка тактовой частоты означает что процессор
@@ -238,3 +258,166 @@ measurements may be noisy and will incur extra overhead.
 собираются с Thread Sanitizer, который вносит значительные
 накладные расходы и не должен влиять на измерения
 производительности.
+
+Параметры запуска бенчмарков определялись следующим образом.
+Число итераций для каждого бенчмарка определялось автоматически
+библиотекой Google Benchmark: библиотека увеличивает число
+итераций до тех пор пока суммарное время выполнения не превысит
+пороговое значение, обеспечивающее статистически значимый
+результат. Для каждого бенчмарка измерялось реальное время
+выполнения (\texttt{real\_time}), а не процессорное время
+(\texttt{cpu\_time}), поскольку реальное время отражает
+фактическую пропускную способность системы с учётом времени
+ожидания потоков.
+
+Исследуемые значения числа потоков --- 1, 2, 4, 8 и 16 ---
+выбраны как степени двойки в диапазоне от одного потока до
+полного использования всех логических ядер тестовой машины.
+Данный диапазон позволяет исследовать три характерных режима
+работы пула потоков. При числе потоков меньше числа ядер
+(1, 2, 4) система недозагружена и накладные расходы планировщика
+минимальны. При числе потоков равном числу ядер (16) достигается
+теоретически оптимальная загрузка. Промежуточное значение 8
+позволяет наблюдать переходный режим.
+
+Каждый бенчмарк запускался в рамках единственного процесса
+без параллельного выполнения других бенчмарков, что исключает
+взаимное влияние сценариев нагрузки на результаты измерений.
+Бенчмарки и тесты корректности запускались раздельно: тесты
+собираются с Thread Sanitizer, который вносит значительные
+накладные расходы и не должен влиять на измерения
+производительности.
+
+\subsubsection{Результаты измерений}
+
+В данном разделе представлены результаты измерений
+производительности обеих реализаций пула потоков для двух
+сценариев нагрузки. Измерения проводились посредством библиотеки
+Google Benchmark. Для каждой конфигурации фиксировались три
+метрики: реальное время выполнения одной итерации бенчмарка
+(Time), суммарное процессорное время потоков (CPU) и пропускная
+способность в задачах в секунду (items/s).
+
+Результаты для сценария~1 (много мелких задач) представлены
+в таблице~\ref{tab:results-small}.
+
+\begin{table}[h]
+\caption{Результаты сценария 1: много мелких задач
+         (10\,000 задач, атомарный инкремент)}
+\label{tab:results-small}
+\begin{tabular}{|c|l|r|r|r|}
+\hline
+\textbf{Потоков} &
+\textbf{Реализация} &
+\textbf{Time, мс} &
+\textbf{CPU, мс} &
+\textbf{items/s} \\
+\hline
+1  & SimpleThreadPool  & 4,52 & 3,60 & 2\,211\,780 \\
+1  & WorkStealingPool  & 4,39 & 3,77 & 2\,275\,520 \\
+\hline
+2  & SimpleThreadPool  & 3,76 & 3,30 & 2\,659\,860 \\
+2  & WorkStealingPool  & 4,86 & 4,26 & 2\,055\,800 \\
+\hline
+4  & SimpleThreadPool  & 6,77 & 5,56 & 1\,476\,680 \\
+4  & WorkStealingPool  & 7,93 & 6,52 & 1\,260\,560 \\
+\hline
+8  & SimpleThreadPool  & 14,2 & 10,5 & 702\,662   \\
+8  & WorkStealingPool  & 14,8 & 11,5 & 677\,055   \\
+\hline
+16 & SimpleThreadPool  & 12,5 & 10,3 & 802\,883   \\
+16 & WorkStealingPool  & 15,2 & 13,3 & 656\,266   \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\caption{Результаты сценария 2: неравномерная нагрузка
+         (10\,000 задач, половина длительностью 200~мкс)}
+\label{tab:results-uneven}
+\begin{tabular}{|c|l|r|r|r|}
+\hline
+\textbf{Потоков} &
+\textbf{Реализация} &
+\textbf{Time, мс} &
+\textbf{CPU, мс} &
+\textbf{items/s} \\
+\hline
+1  & SimpleThreadPool  & 1268 & 35,9 & 7\,884  \\
+1  & WorkStealingPool  & 1266 & 2,97 & 7\,896  \\
+\hline
+2  & SimpleThreadPool  & 638  & 24,8 & 15\,671 \\
+2  & WorkStealingPool  & 635  & 16,9 & 15\,755 \\
+\hline
+4  & SimpleThreadPool  & 317  & 15,5 & 31\,542 \\
+4  & WorkStealingPool  & 317  & 7,65 & 31\,588 \\
+\hline
+8  & SimpleThreadPool  & 159  & 11,2 & 63\,088 \\
+8  & WorkStealingPool  & 237  & 3,50 & 42\,228 \\
+\hline
+16 & SimpleThreadPool  & 80,3 & 10,4 & 124\,480 \\
+16 & WorkStealingPool  & 98,1 & 2,75 & 101\,895 \\
+\hline
+\end{tabular}
+\end{table}
+
+По результатам измерений можно выделить несколько наблюдений.
+
+В сценарии~1 обе реализации демонстрируют схожую тенденцию:
+производительность растёт при переходе от 1 к 2 потокам,
+затем деградирует при дальнейшем увеличении числа потоков.
+Минимальное реальное время для \texttt{SimpleThreadPool}
+достигается при 2~потоках (3,76~мс), для
+\texttt{WorkStealingPool} --- при 1~потоке (4,39~мс).
+При 16~потоках \texttt{SimpleThreadPool} показывает реальное
+время 12,5~мс, \texttt{WorkStealingPool} --- 15,2~мс.
+
+В сценарии~2 наблюдается принципиальное различие между метриками
+реального и процессорного времени. При 16~потоках
+\texttt{SimpleThreadPool} демонстрирует реальное время 80,3~мс
+при процессорном времени 10,4~мс, тогда как
+\texttt{WorkStealingPool} --- реальное время 98,1~мс при
+процессорном времени 2,75~мс. Таким образом,
+\texttt{WorkStealingPool} потребляет в 3,8 раза меньше
+процессорного времени, однако выполняет бенчмарк в 1,2 раза
+медленнее по реальному времени. Данное соотношение метрик
+свидетельствует о принципиальном различии в стратегии ожидания
+задач между двумя реализациями, что будет подробно рассмотрено
+в разделе~3.3.
+
+Для наглядного сравнения масштабируемости обеих реализаций
+в таблице~\ref{tab:speedup} представлены значения ускорения
+$S_P = T_1 / T_P$ относительно однопоточного запуска
+для каждого сценария.
+
+\begin{table}[h]
+\caption{Ускорение $S_P$ относительно однопоточного запуска}
+\label{tab:speedup}
+\begin{tabularx}{\textwidth}{|c|X|X|X|X|}
+\hline
+\textbf{Потоков} &
+\textbf{Simple, сц.~1} &
+\textbf{WS, сц.~1} &
+\textbf{Simple, сц.~2} &
+\textbf{WS, сц.~2} \\
+\hline
+1  & 1,00 & 1,00 & 1,00 & 1,00 \\
+\hline
+2  & 1,20 & 0,90 & 1,99 & 1,99 \\
+\hline
+4  & 0,67 & 0,55 & 4,00 & 3,99 \\
+\hline
+8  & 0,32 & 0,30 & 7,97 & 5,34 \\
+\hline
+16 & 0,36 & 0,29 & 15,79 & 12,90 \\
+\hline
+\end{tabularx}
+\end{table}
+
+Из таблицы~\ref{tab:speedup} следует что в сценарии~1 обе
+реализации не обеспечивают ускорения при увеличении числа
+потоков --- напротив, производительность снижается. В сценарии~2
+обе реализации демонстрируют близкое к линейному ускорение
+при малом числе потоков (до 4 включительно), однако при 8 и
+16~потоках \texttt{WorkStealingPool} демонстрирует меньшее
+ускорение чем \texttt{SimpleThreadPool}.
