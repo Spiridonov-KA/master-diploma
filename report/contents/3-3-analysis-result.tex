@@ -1,0 +1,156 @@
+\subsection{Тестирование и анализ результатов}
+
+\subsubsection{Тестирование корректности}
+
+Тестирование корректности библиотеки осуществляется посредством
+автоматических тестов, построенных на основе библиотеки Google
+Test. Тесты организованы в три независимых набора, соответствующих
+трём модулям библиотеки. Все тесты запускаются с включённым
+Thread Sanitizer, что позволяет обнаруживать гонки данных
+во время выполнения.
+
+Набор тестов для \texttt{WorkStealingDeque} содержит 12 тестов,
+разделённых на две группы. Первая группа проверяет корректность
+операций в однопоточном режиме, вторая --- корректность при
+конкурентном доступе нескольких потоков. Описание тестов
+представлено в таблице~\ref{tab:tests-deque}.
+
+\begin{table}[h]
+\caption{Тесты корректности WorkStealingDeque}
+\label{tab:tests-deque}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+Тест & Что проверяется \\
+\hline
+\texttt{InitiallyEmpty} &
+Очередь после создания пуста. \\
+\hline
+\texttt{PushIncreasesSize} &
+Размер очереди увеличивается после \texttt{push}. \\
+\hline
+\texttt{PopOnEmptyReturnsFalse} &
+\texttt{pop} возвращает \texttt{false} на пустой очереди. \\
+\hline
+\texttt{StealOnEmptyReturnsFalse} &
+\texttt{steal} возвращает \texttt{false} на пустой очереди. \\
+\hline
+\texttt{PopIsLIFO} &
+Владелец извлекает задачи в порядке LIFO. \\
+\hline
+\texttt{StealIsFIFO} &
+Вор извлекает задачи в порядке FIFO. \\
+\hline
+\texttt{PopDecreasesSize} &
+Размер очереди уменьшается после \texttt{pop}. \\
+\hline
+\texttt{GrowsWhenFull} &
+Очередь корректно расширяется при переполнении. \\
+\hline
+\texttt{SingleThiefStealsAll} &
+Один вор корректно крадёт все задачи. \\
+\hline
+\texttt{OwnerAndThiefConcurrently} &
+Владелец и вор работают одновременно,
+каждая задача выполняется ровно один раз. \\
+\hline
+\texttt{MultipleThievesConcurrently} &
+Несколько воров работают одновременно,
+каждая задача выполняется ровно один раз. \\
+\hline
+\texttt{SingleElementRaceCondition} &
+Граничный случай: один элемент в очереди,
+гонка между владельцем и вором. \\
+\hline
+\end{tabularx}
+\end{table}
+
+Тест \texttt{SingleElementRaceCondition} заслуживает отдельного
+внимания. Он многократно (10\,000 итераций) создаёт очередь
+с одним элементом и запускает одновременно владельца и вора,
+каждый из которых пытается забрать этот элемент. После
+завершения обоих потоков проверяется что задача была выполнена
+ровно один раз. Данный тест выявляет ошибки в обработке
+граничного случая, когда владелец и вор одновременно
+претендуют на последний элемент очереди.
+
+Набор тестов для \texttt{SimpleThreadPool} содержит 6 тестов,
+проверяющих основные аспекты работы пула. Описание тестов
+представлено в таблице~\ref{tab:tests-simple}.
+
+\begin{table}[h]
+\caption{Тесты корректности SimpleThreadPool}
+\label{tab:tests-simple}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+Тест & Что проверяется \\
+\hline
+\texttt{ReturnsCorrectResult} & Задача выполняется и возвращает корректный результат через \texttt{std::future}. \\
+\hline
+\texttt{MultipleTasksExecuted} & 100 задач выполняются и возвращают корректные результаты. \\
+\hline
+\texttt{AllTasksAreExecuted} & 1\,000 задач выполняются все без исключения. \\
+\hline
+\texttt{ExceptionPropagated} & Исключение внутри задачи корректно пробрасывается через \texttt{std::future::get()}. \\
+\hline
+\texttt{SingleThreadSequential} & При одном рабочем потоке задачи выполняются в порядке постановки. \\
+\hline
+\texttt{ThreadCountIsCorrect} & Метод \texttt{thread\_count()} возвращает корректное количество созданных потоков. \\
+\hline
+\end{tabularx}
+\end{table}
+
+Набор тестов для \texttt{WorkStealingPool} содержит 10 тестов.
+По структуре он аналогичен набору для \texttt{SimpleThreadPool},
+однако дополнительно включает тесты специфичные для механизма
+work-stealing. Описание тестов представлено
+в таблице~\ref{tab:tests-ws}.
+
+\begin{table}[h]
+\caption{Тесты корректности WorkStealingPool}
+\label{tab:tests-ws}
+\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+Тест & Что проверяется \\
+\hline
+\texttt{ReturnsCorrectResult} &
+Задача выполняется и возвращает корректный результат
+через \texttt{std::future}. \\
+\hline
+\texttt{MultipleTasksExecuted} &
+100 задач возвращают корректные результаты. \\
+\hline
+\texttt{AllTasksAreExecuted} &
+1\,000 задач выполняются все без исключения. \\
+\hline
+\texttt{ExceptionPropagated} &
+Исключение пробрасывается через \texttt{std::future}. \\
+\hline
+\texttt{ThreadCountIsCorrect} &
+Метод \texttt{thread\_count()} возвращает корректное
+число рабочих потоков. \\
+\hline
+\texttt{SingleThreadExecutes} &
+Пул с одним потоком выполняет все задачи корректно. \\
+\hline
+\texttt{HeavyLoadAllTasks} &
+100\,000 задач выполняются корректно под высокой
+нагрузкой. \\
+\hline
+\texttt{UnevenTaskDurations} &
+Все задачи выполняются при неравномерной нагрузке. \\
+\hline
+\texttt{ResultsUnderContention} &
+Корректность результатов при конкуренции потоков. \\
+\hline
+\texttt{DestructorWaitsPending} &
+Деструктор дожидается завершения всех задач. \\
+\hline
+\end{tabularx}
+\end{table}
+
+Результаты запуска тестов подтверждают корректность всех
+реализованных компонентов: все 28 тестов из трёх наборов
+успешно пройдены. Отсутствие сообщений об ошибках со стороны
+Thread Sanitizer подтверждает корректность синхронизации
+в реализованных структурах данных и отсутствие гонок данных
+при конкурентном доступе нескольких потоков.
