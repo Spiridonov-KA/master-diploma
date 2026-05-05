@@ -10,8 +10,9 @@
 единственную ответственность. Файловая структура проекта
 представлена в листинге~\ref{lst:project-structure}.
 
-\begin{lstlisting}[caption={Файловая структура проекта},
-                   label={lst:project-structure}]
+\begin{figure}[H]
+  \centering
+  \begin{verbatim}
 implementation
 ├── benchmarks
 │   └── bench_thread_pools.cpp
@@ -28,7 +29,9 @@ implementation
     ├── test_simple_pool.cpp
     ├── test_work_stealing_deque.cpp
     └── test_work_stealing_pool.cpp
-\end{lstlisting}
+  \end{verbatim}
+  \caption{Файловая структура проекта}\label{lst:project-structure}
+\end{figure}
 
 Каталог \texttt{include/thread\_pool/} содержит заголовочные
 файлы всех публичных компонентов библиотеки. Размещение
