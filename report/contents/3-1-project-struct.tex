@@ -8,7 +8,7 @@
 о структуре библиотек на языке C++. Корневой
 каталог содержит четыре подкаталога, каждый из которых несёт
 единственную ответственность. Файловая структура проекта
-представлена в листинге~\ref{lst:project-structure}.
+представлена на рисунке~\ref{lst:project-structure}.
 
 \begin{figure}[H]
   \centering
@@ -86,7 +86,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Основная библиотека — без внешних зависимостей
+# Основная библиотека - без внешних зависимостей
 add_library(thread_pool
     src/simple_thread_pool.cpp
     src/work_stealing_pool.cpp
@@ -99,14 +99,14 @@ FetchContent_Declare(googletest ...)
 FetchContent_Declare(googlebenchmark ...)
 FetchContent_MakeAvailable(googletest googlebenchmark)
 
-# Тесты — с ThreadSanitizer для обнаружения гонок данных
+# Тесты - с ThreadSanitizer для обнаружения гонок данных
 add_executable(tests ...)
 target_compile_options(tests PRIVATE -fsanitize=thread)
 target_link_options(tests PRIVATE -fsanitize=thread)
 
-# Бенчмарки — с оптимизацией O3
+# Бенчмарки - с оптимизацией O3
 add_executable(benchmarks ...)
-target_compile_options(benchmarks PRIVATE -O3)
+target_compile_options(benchmarks PRIVATE -O2)
 \end{lstlisting}
 
 Тесты корректности собираются с включённым Thread Sanitizer
@@ -180,7 +180,7 @@ SimpleThreadPool::~SimpleThreadPool() {
                    label={lst:destructor-fix}]
 SimpleThreadPool::~SimpleThreadPool() {
     {
-        // Захват мьютекса гарантирует что поток
+        // Захват мьютекса гарантирует, что поток
         // либо уже в cv_.wait(), либо увидит флаг
         // при следующем захвате мьютекса
         std::lock_guard<std::mutex> lock(queue_mutex_);
@@ -224,7 +224,7 @@ bool pop(std::function<void()>& task) {
     std::size_t bottom = bottom_.load(std::memory_order_relaxed);
     std::size_t top    = top_.load(std::memory_order_acquire);
 
-    // Проверяем до вычитания — исключаем переполнение
+    // Проверяем до вычитания - исключаем переполнение
     if (bottom == top) {
         return false;
     }
