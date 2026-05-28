@@ -1,0 +1,503 @@
+\documentclass[pdf, hyperref={unicode}, aspectratio=169]{beamer}
+
+\usepackage{./diploma-slides-latex-template/styles}
+\usepackage{booktabs}
+\usepackage{listings}
+
+\input{titlepage}
+
+\begin{document}
+
+\frame{\titlepage}
+
+% ─── 1. Актуальность ───────────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Актуальность темы}
+
+\begin{columns}[T]
+
+\column{0.65\textwidth}
+\begin{itemize}
+  \item В начале 2000-х годов рост тактовой частоты процессоров достиг
+        физических пределов~--- индустрия перешла к многоядерным
+        архитектурам
+  \item Флагманские серверные процессоры содержат \textbf{сотни ядер};
+        параллелизм стал повседневной инженерной реальностью
+  \item Классический пул потоков с \textbf{единой глобальной очередью}
+        плохо масштабируется: очередь превращается в узкое место при
+        большом числе потоков
+  \item Стандартная библиотека \textbf{C++17 не предоставляет} готовой
+        реализации пула потоков
+\end{itemize}
+
+\column{0.42\textwidth}
+\begin{block}{Проблема}
+  Отсутствует реализация пула потоков с механизмом work-stealing,
+  построенная исключительно на стандарте C++17 без внешних
+  зависимостей и подкреплённая систематическим экспериментальным
+  исследованием
+\end{block}
+
+\end{columns}
+\end{frame}
+
+
+% ─── 2. Цель и задачи ──────────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Цель и задачи работы}
+
+\textbf{Цель~---} разработать библиотеку на языке C++, реализующую
+пул потоков с механизмом work-stealing, и экспериментально исследовать
+её производительность в сравнении с классическим пулом потоков
+
+\medskip
+\textbf{Задачи:}
+\begin{itemize}
+  \item Проанализировать существующие подходы и реализации пулов потоков
+  \item Спроектировать архитектуру библиотеки с единым интерфейсом
+        для двух реализаций
+  \item Реализовать \texttt{SimpleThreadPool} и
+        \texttt{WorkStealingPool} без внешних зависимостей
+  \item Верифицировать корректность посредством автоматических тестов
+        и Thread Sanitizer
+  \item Провести сравнительное исследование производительности
+        и сформулировать практические рекомендации
+\end{itemize}
+\end{frame}
+
+
+% ─── 3. Постановка задачи ──────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Постановка задачи}
+
+\begin{columns}[T]
+
+\column{0.5\textwidth}
+\textbf{Дано:}
+\begin{itemize}
+  \item Многоядерная вычислительная система
+  \item Поток задач с неизвестной заранее структурой нагрузки
+  \item Теоретическая оценка Блюмофе--Лейзерсона:
+        \[T_P \le \frac{T_1}{P} + O(T_\infty)\]
+  \item Алгоритм Chase--Lev для двусторонней очереди
+\end{itemize}
+
+\column{0.55\textwidth}
+\textbf{Требования к решению:}
+\begin{itemize}
+  \item Язык~--- C++17, без внешних зависимостей
+  \item Единый интерфейс \texttt{submit()} для обеих реализаций
+  \item Корректность при конкурентном доступе
+        (отсутствие гонок данных)
+\end{itemize}
+
+\medskip
+\textbf{Необходимо:}\\
+Библиотека с двумя взаимозаменяемыми реализациями пула потоков
+и экспериментальное сравнение их характеристик
+\end{columns}
+\end{frame}
+
+
+% ─── 4. Теоретическая основа ───────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Теоретическая основа: механизм work-stealing}
+
+\begin{columns}[T]
+
+\column{0.52\textwidth}
+\textbf{Модель Блюмофе--Лейзерсона:}
+\begin{itemize}
+  \item Параллельное вычисление~--- ориентированный ациклический граф
+  \item $T_1$~--- работа (однопроцессорное время)
+  \item $T_\infty$~--- глубина (критический путь)
+  \item Гарантия жадного work-stealing:
+        \[T_P \le \frac{T_1}{P} + O(T_\infty)\]
+\end{itemize}
+
+\textbf{Закон Амдала:}
+\[S_P \le \frac{1}{\alpha + \frac{1-\alpha}{P}}\]
+Накладные расходы на синхронизацию увеличивают~$\alpha$
+
+\column{0.45\textwidth}
+\textbf{Принцип работы deque:}
+
+\begin{block}{Владелец (LIFO, нижний конец)}
+  \texttt{push(task)} \quad \texttt{pop(task)}\\
+  В типичном случае~--- без конкуренции
+\end{block}
+
+\begin{block}{Вор (FIFO, верхний конец)}
+  \texttt{steal(task)}\\
+  Забирает «старые» крупные задачи
+\end{block}
+
+\medskip
+Асимметрия обеспечивает низкую конкуренцию
+и хорошую локальность данных
+
+\end{columns}
+\end{frame}
+
+
+% ─── 5. Архитектура библиотеки ─────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Архитектура библиотеки}
+
+\begin{columns}[T]
+
+\column{0.45\textwidth}
+\textbf{Три независимых модуля:}
+
+\medskip
+\begin{block}{\texttt{WorkStealingDeque}}
+  Двусторонняя очередь.\\
+  Асимметричный доступ\\
+  владельца и воров.\\
+  Синхронизация: \texttt{std::mutex}
+\end{block}
+
+\begin{block}{\texttt{SimpleThreadPool}}
+  Единая глобальная очередь.\\
+  \texttt{std::mutex} +
+  \texttt{std::condition\_variable}
+\end{block}
+
+\begin{block}{\texttt{WorkStealingPool}}
+  По одной \texttt{WorkStealingDeque}\\
+  на каждый поток.\\
+  Случайный выбор жертвы (\texttt{mt19937})
+\end{block}
+
+\column{0.52\textwidth}
+\textbf{Единый интерфейс:}
+
+\medskip
+\begin{semiverbatim}
+template<typename F, typename... Args>
+auto submit(F\&\& f, Args\&\&... args)
+  -> std::future<
+       invoke\_result\_t<F,Args...>>;
+\end{semiverbatim}
+
+\medskip
+\textbf{Управление жизненным циклом:}
+\begin{itemize}
+  \item Конструктор: создаёт рабочие потоки
+        (по умолчанию~---
+        \texttt{hardware\_concurrency()})
+  \item Деструктор: graceful shutdown~---
+        дожидается завершения всех задач
+  \item Классы некопируемы и неперемещаемы
+\end{itemize}
+
+\medskip
+\textbf{Стек технологий:}
+C++17, CMake~$\ge$~3.14,
+Google Test~1.14.0,
+Google Benchmark~1.8.3
+
+\end{columns}
+\end{frame}
+
+
+% ─── 6. Ключевые алгоритмы ─────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Алгоритм рабочего цикла WorkStealingPool}
+
+\begin{columns}[T]
+
+\column{0.50\textwidth}
+\textbf{Рабочий цикл потока с индексом $i$:}
+
+\medskip
+\begin{enumerate}
+  \item \textbf{Своя очередь:} \texttt{queues[i].pop(task)}\\
+        Если есть~--- выполнить, перейти к~1
+  \item \textbf{Кража:} до 32 попыток\\
+        случайно выбрать жертву $j \ne i$,\\
+        \texttt{queues[j].steal(task)}\\
+        Если удалось~--- выполнить, перейти к~1
+  \item \textbf{Ожидание:}
+        \texttt{cv.wait\_for(1\,мс)}\\
+        Предикат: есть задачи \textbf{или} флаг
+        остановки
+  \item \textbf{Завершение:} если флаг
+        остановки~--- опустошить свою очередь
+        и выйти
+\end{enumerate}
+
+\column{0.47\textwidth}
+\textbf{Нетривиальные проблемы реализации:}
+
+\begin{alertblock}{Гонка в деструкторе SimpleThreadPool}
+  \texttt{notify\_all()} до входа потока в
+  \texttt{wait()} $\Rightarrow$ уведомление
+  теряется.\\
+  \textbf{Решение:} устанавливать флаг под
+  мьютексом
+\end{alertblock}
+
+\begin{alertblock}{Переполнение \texttt{size\_t} в pop()}
+  \texttt{bottom\_ - 1} при
+  \texttt{bottom\_ == 0} $\Rightarrow$
+  segfault.\\
+  \textbf{Решение:} проверять
+  \texttt{bottom == top} до вычитания
+\end{alertblock}
+
+Все дефекты обнаружены \textbf{Thread Sanitizer}
+
+\end{columns}
+\end{frame}
+
+
+% ─── 7. Тестирование ───────────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Верификация корректности}
+
+\begin{columns}[T]
+
+\column{0.52\textwidth}
+\textbf{28 автоматических тестов (Google Test):}
+
+\medskip
+\begin{tabular}{lc}
+\toprule
+Набор тестов & Тестов \\
+\midrule
+\texttt{WorkStealingDeque} & 12 \\
+\texttt{SimpleThreadPool}  & 6  \\
+\texttt{WorkStealingPool}  & 10 \\
+\midrule
+\textbf{Итого} & \textbf{28} \\
+\bottomrule
+\end{tabular}
+
+\column{0.45\textwidth}
+\textbf{Ключевые тесты:}
+\begin{itemize}
+  \item \texttt{SingleElementRaceCondition}~---
+        10\,000 итераций: владелец и вор
+        одновременно претендуют на
+        последний элемент; задача
+        выполняется ровно один раз
+  \item \texttt{DestructorWaitsPending}~---
+        деструктор дожидается всех задач
+  \item \texttt{HeavyLoadAllTasks}~---
+        100\,000 задач под нагрузкой
+\end{itemize}
+\end{columns}
+
+\medskip
+\begin{block}{Результат}
+  Все 28 тестов пройдены.
+  Thread Sanitizer не обнаружил ни одной гонки данных.
+  Сборка с \texttt{-fsanitize=thread} интегрирована в CMake.
+\end{block}
+\end{frame}
+
+
+% ─── 8. Условия эксперимента ───────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Условия экспериментального исследования}
+
+\begin{columns}[T]
+
+\column{0.45\textwidth}
+\textbf{Тестовая машина:}
+
+\medskip
+\begin{tabular}{ll}
+\toprule
+Параметр & Значение \\
+\midrule
+Логических ядер & 16 \\
+Тактовая частота & 5102{,}71~МГц \\
+Кэш L1 & 32~КиБ $\times$ 8 \\
+Кэш L2 & 1024~КиБ $\times$ 8 \\
+Кэш L3 & 16384~КиБ $\times$ 1 \\
+ОС & Linux \\
+Компилятор & Clang, C++17 \\
+Оптимизация & \texttt{-O2} \\
+\bottomrule
+\end{tabular}
+
+\column{0.52\textwidth}
+\textbf{Два сценария нагрузки:}
+
+\begin{block}{Сценарий 1: много мелких задач}
+  10\,000 задач, каждая~--- атомарный
+  инкремент ($\approx$5~нс).\\
+  Измеряет накладные расходы планировщика.
+\end{block}
+
+\begin{block}{Сценарий 2: неравномерная нагрузка}
+  10\,000 задач: половина~---
+  атомарный инкремент,\\
+  половина~--- \texttt{sleep\_for(200~мкс)}.\\
+  Целевой сценарий для work-stealing.
+\end{block}
+
+\medskip
+Число потоков: \textbf{1, 2, 4, 8, 16}.\\
+Измерение: реальное время (\texttt{UseRealTime}).\\
+Число итераций: автоматически (Google Benchmark).
+
+\end{columns}
+\end{frame}
+
+
+% ─── 9. Результаты ─────────────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Результаты экспериментального исследования}
+
+\begin{columns}[T]
+
+\column{0.50\textwidth}
+\textbf{Сценарий 1: много мелких задач}
+
+\medskip
+\begin{tabular}{ccc}
+\toprule
+Потоков & Simple, мс & WS, мс \\
+\midrule
+1  & 4{,}52 & 4{,}39 \\
+2  & \textbf{3{,}76} & 4{,}86 \\
+4  & 6{,}77 & 7{,}93 \\
+8  & 14{,}2 & 14{,}8 \\
+16 & 12{,}5 & 15{,}2 \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\small Обе реализации \alert{деградируют} с ростом
+числа потоков: накладные расходы планировщика
+многократно превышают полезную работу
+
+\column{0.47\textwidth}
+\textbf{Сценарий 2: неравномерная нагрузка}
+
+\medskip
+\begin{tabular}{ccc}
+\toprule
+Потоков & Simple, мс & WS, мс \\
+\midrule
+1  & 1268 & 1266 \\
+2  & 638  & 635  \\
+4  & 317  & 317  \\
+8  & \textbf{159}  & 237  \\
+16 & \textbf{80{,}3} & 98{,}1 \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\small При 16 потоках SimpleThreadPool
+быстрее по реальному времени,
+но WorkStealingPool потребляет
+\alert{в 3{,}8 раза меньше CPU}
+(2{,}75~мс против 10{,}4~мс)
+
+\end{columns}
+\end{frame}
+
+
+% ─── 10. Анализ результатов ────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Анализ результатов: фундаментальный компромисс}
+
+\begin{columns}[T]
+
+\column{0.50\textwidth}
+\textbf{Почему WorkStealingPool медленнее\\по реальному времени?}
+
+\begin{enumerate}
+  \item \texttt{WorkStealingDeque} использует
+        \texttt{std::mutex}~--- операции
+        владельца \textbf{не} lock-free.\\
+        Теоретическое преимущество
+        локальных очередей не достигается
+  \item Механизм ожидания:
+        \texttt{cv.wait\_for(1\,мс)}~---
+        потоки засыпают при отсутствии
+        задач; пробуждение с задержкой
+        до 1~мс
+  \item SimpleThreadPool пробуждает
+        потоки \textbf{мгновенно} через
+        \texttt{condition\_variable}
+\end{enumerate}
+
+\column{0.47\textwidth}
+\textbf{Практические рекомендации:}
+
+\begin{block}{SimpleThreadPool}
+  Предпочтителен при жёстких
+  требованиях к \textbf{латентности}:
+  высоконагруженные серверы,
+  интерактивные приложения
+\end{block}
+
+\begin{block}{WorkStealingPool}
+  Предпочтителен при требованиях
+  к \textbf{энергоэффективности}:
+  фоновые вычисления, мобильные
+  устройства, системы с ограниченным
+  энергопотреблением.\\
+  \medskip
+  Таймаут \texttt{wait\_for} настраиваем:
+  меньше~--- ниже латентность,
+  больше~--- меньше CPU
+\end{block}
+
+\end{columns}
+\end{frame}
+
+
+% ─── 11. Выводы ────────────────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Выводы и результаты работы}
+
+\begin{enumerate}
+  \item \textbf{Спроектирована и реализована} модульная библиотека
+        на чистом C++17 без внешних зависимостей:
+        \texttt{SimpleThreadPool}, \texttt{WorkStealingPool},
+        \texttt{WorkStealingDeque} с единым интерфейсом
+        \texttt{submit()}
+
+  \item \textbf{Верифицирована корректность:} 28 тестов пройдены,
+        Thread Sanitizer не обнаружил гонок данных;
+        выявлены и устранены нетривиальные дефекты
+
+  \item \textbf{Установлен фундаментальный компромисс:}
+        SimpleThreadPool~--- меньшая латентность (80{,}3~мс при
+        16 потоках), WorkStealingPool~--- в 3{,}8 раза меньше
+        CPU (2{,}75~мс против 10{,}4~мс) при неравномерной нагрузке
+
+  \item \textbf{Научная новизна:} систематически исследовано влияние
+        механизма ожидания на соотношение реального и процессорного
+        времени; выявлены условия, при которых блокирующая
+        синхронизация в deque нивелирует преимущества work-stealing
+\end{enumerate}
+
+\medskip
+\begin{block}{Перспективы}
+  Lock-free deque (алгоритм Chase--Lev + hazard pointers);
+  NUMA-топологическая оптимизация;
+  рекурсивные сценарии («разделяй и властвуй»)
+\end{block}
+\end{frame}
+
+
+% ─── 12. Код ───────────────────────────────────────────────────────────────────
+\begin{frame}
+\frametitle{Исходный код библиотеки}
+
+Полный исходный код размещён в открытом репозитории GitHub.
+
+\begin{figure}
+  \includegraphics[height=0.62\textheight]{./diploma-slides-latex-template/img/qr-code}
+\end{figure}
+
+\end{frame}
+
+\end{document}
